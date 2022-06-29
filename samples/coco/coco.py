@@ -48,7 +48,8 @@ import urllib.request
 import shutil
 
 # Root directory of the project
-ROOT_DIR = os.path.abspath("../../")
+#strategy = tf.distribute.MirroredStrategy(devices=["/gpu:0", "/gpu:1", "/gpu:2", "/gpu:3", "/gpu:4", "/gpu:5", "/gpu:6", "/gpu:7"], cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
+ROOT_DIR = r"D:\Nirwan\PANet\Mask_RCNN"
 
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
@@ -74,14 +75,14 @@ class CocoConfig(Config):
     to the COCO dataset.
     """
     # Give the configuration a recognizable name
-    NAME = "coco"
+    NAME = "coco_experiment_1"
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
-    IMAGES_PER_GPU = 2
+    IMAGES_PER_GPU = 8
 
     # Uncomment to train on 8 GPUs (default is 1)
-    # GPU_COUNT = 8
+    GPU_COUNT = 2
 
     # Number of classes (including background)
     NUM_CLASSES = 1 + 80  # COCO has 80 classes
@@ -262,7 +263,7 @@ class CocoDataset(utils.Dataset):
 
         # Pack instance masks into an array
         if class_ids:
-            mask = np.stack(instance_masks, axis=2).astype(np.bool)
+            mask = np.stack(instance_masks, axis=2).astype(bool)
             class_ids = np.array(class_ids, dtype=np.int32)
             return mask, class_ids
         else:
@@ -444,7 +445,7 @@ if __name__ == '__main__':
             # Set batch size to 1 since we'll be running inference on
             # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
             GPU_COUNT = 1
-            IMAGES_PER_GPU = 1
+            IMAGES_PER_GPU = 2
             DETECTION_MIN_CONFIDENCE = 0
         config = InferenceConfig()
     config.display()
@@ -497,9 +498,10 @@ if __name__ == '__main__':
 
         # Training - Stage 1
         print("Training network heads")
+        
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=40,
+                    epochs=5,
                     layers='heads',
                     augmentation=augmentation)
 
@@ -508,7 +510,7 @@ if __name__ == '__main__':
         print("Fine tune Resnet stage 4 and up")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=120,
+                    epochs=5,
                     layers='4+',
                     augmentation=augmentation)
 
@@ -517,7 +519,7 @@ if __name__ == '__main__':
         print("Fine tune all layers")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE / 10,
-                    epochs=160,
+                    epochs=5,
                     layers='all',
                     augmentation=augmentation)
 

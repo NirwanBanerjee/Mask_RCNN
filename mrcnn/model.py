@@ -34,6 +34,7 @@ tf.compat.v1.disable_eager_execution()
 #  Utility Functions
 ############################################################
 
+strategy = tf.distribute.MirroredStrategy(devices=["/gpu:0", "/gpu:1", "/gpu:2", "/gpu:3", "/gpu:4", "/gpu:5", "/gpu:6", "/gpu:7"], cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
 
 def log(text, array=None):
     """Prints a text message. And, optionally, if a Numpy array is provided it
@@ -1270,7 +1271,7 @@ def load_image_gt(dataset, config, image_id, augmentation=None):
         assert image.shape == image_shape, "Augmentation shouldn't change image size"
         assert mask.shape == mask_shape, "Augmentation shouldn't change mask size"
         # Change mask back to bool
-        mask = mask.astype(np.bool)
+        mask = mask.astype(bool)
 
     # Note that some boxes might be all zeros if the corresponding mask got cropped out.
     # and here is to filter them out
@@ -2306,45 +2307,46 @@ class MaskRCNN(object):
         assert self.mode == "training", "Create model in training mode."
 
         # Pre-defined layer regular expressions
-        layer_regex = {
-            # all layers but the backbone
-            "heads": r"(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
-            # From a specific Resnet stage and up
-            "3+": r"(res3.*)|(bn3.*)|(res4.*)|(bn4.*)|(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
-            "4+": r"(res4.*)|(bn4.*)|(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
-            "5+": r"(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
-            # All layers
-            "all": ".*",
-        }
-        if layers in layer_regex.keys():
-            layers = layer_regex[layers]
+        with strategy.scope():
+            layer_regex = {
+                # all layers but the backbone
+                "heads": r"(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                # From a specific Resnet stage and up
+                "3+": r"(res3.*)|(bn3.*)|(res4.*)|(bn4.*)|(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                "4+": r"(res4.*)|(bn4.*)|(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                "5+": r"(res5.*)|(bn5.*)|(mrcnn\_.*)|(rpn\_.*)|(fpn\_.*)",
+                # All layers
+                "all": ".*",
+            }
+            if layers in layer_regex.keys():
+                layers = layer_regex[layers]
 
-        # Data generators
-        train_generator = DataGenerator(train_dataset, self.config, shuffle=True,
-                                         augmentation=augmentation)
-        val_generator = DataGenerator(val_dataset, self.config, shuffle=True)
+            # Data generators
+            train_generator = DataGenerator(train_dataset, self.config, shuffle=True,
+                                            augmentation=augmentation)
+            val_generator = DataGenerator(val_dataset, self.config, shuffle=True)
 
-        # Create log_dir if it does not exist
-        if not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
+            # Create log_dir if it does not exist
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
 
-        # Callbacks
-        callbacks = [
-            keras.callbacks.TensorBoard(log_dir=self.log_dir,
-                                        histogram_freq=0, write_graph=True, write_images=False),
-            keras.callbacks.ModelCheckpoint(self.checkpoint_path,
-                                            verbose=0, save_weights_only=True),
-        ]
+            # Callbacks
+            callbacks = [
+                keras.callbacks.TensorBoard(log_dir=self.log_dir,
+                                            histogram_freq=0, write_graph=True, write_images=False),
+                keras.callbacks.ModelCheckpoint(self.checkpoint_path,
+                                                verbose=0, save_weights_only=True),
+            ]
 
-        # Add custom callbacks to the list
-        if custom_callbacks:
-            callbacks += custom_callbacks
+            # Add custom callbacks to the list
+            if custom_callbacks:
+                callbacks += custom_callbacks
 
-        # Train
-        log("\nStarting at epoch {}. LR={}\n".format(self.epoch, learning_rate))
-        log("Checkpoint Path: {}".format(self.checkpoint_path))
-        self.set_trainable(layers)
-        self.compile(learning_rate, self.config.LEARNING_MOMENTUM)
+            # Train
+            log("\nStarting at epoch {}. LR={}\n".format(self.epoch, learning_rate))
+            log("Checkpoint Path: {}".format(self.checkpoint_path))
+            self.set_trainable(layers)
+            self.compile(learning_rate, self.config.LEARNING_MOMENTUM, metrics=['accuracy'])
 
         # Work-around for Windows: Keras fails on Windows when using
         # multiprocessing workers. See discussion here:
@@ -2353,7 +2355,7 @@ class MaskRCNN(object):
             workers = 0
         else:
             workers = multiprocessing.cpu_count()
-
+        print(multiprocessing.cpu_count())
         self.keras_model.fit(
             train_generator,
             initial_epoch=self.epoch,
@@ -2362,9 +2364,9 @@ class MaskRCNN(object):
             callbacks=callbacks,
             validation_data=val_generator,
             validation_steps=self.config.VALIDATION_STEPS,
-            max_queue_size=100,
-            workers=workers,
-            use_multiprocessing=workers > 1,
+            max_queue_size=10,
+            #workers=8,
+            #use_multiprocessing=workers > 1,
         )
         self.epoch = max(self.epoch, epochs)
 
