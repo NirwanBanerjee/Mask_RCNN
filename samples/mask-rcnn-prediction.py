@@ -47,4 +47,4 @@ mrcnn.visualize.display_instances(image=image,
                                   masks=r['masks'], 
                                   class_ids=r['class_ids'], 
                                   class_names=CLASS_NAMES, 
-                                  scores=r['scores'])
+                                  scores=r['scores'], show_bbox=False)
