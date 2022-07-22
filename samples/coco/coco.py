@@ -49,7 +49,7 @@ import shutil
 
 # Root directory of the project
 ROOT_DIR = os.path.abspath(r"D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2")
-
+print("PANet")
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn.config import Config
@@ -74,7 +74,7 @@ class CocoConfig(Config):
     to the COCO dataset.
     """
     # Give the configuration a recognizable name
-    NAME = "coco"
+    NAME = "panet"
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.

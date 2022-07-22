@@ -23,6 +23,13 @@ import shutil
 import warnings
 from distutils.version import LooseVersion
 
+import tensorflow as tf
+import keras
+import keras.backend as K
+import keras.layers as KL
+import keras.engine as KE
+import keras.models as KM
+
 # URL from which to download the latest COCO trained weights
 COCO_MODEL_URL = "https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5"
 
@@ -906,3 +913,181 @@ def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
             image, output_shape,
             order=order, mode=mode, cval=cval, clip=clip,
             preserve_range=preserve_range)
+
+
+############################################################
+# Function definitions for Cross-Scale Adaptive Fusion
+# For now each pyramidal layer has to be prepared separately
+# namely separate function definitiosn for P2, P3, P4 and P5.
+# This is due to the complicated method of upsampling and downsampling mentioned in the ASI paper.
+############################################################
+import ipdb
+def get_p_hat_2(P2, P3, P4, P5, filters):
+    '''
+    Arguments:
+    P2 : The P2 layer received from the backbone FPN network
+    P3 : The P3 layer received from the backbone FPN network
+    P4 : The P4 layer received from the backbone FPN network
+    P5 : The P5 layer received from the backbone FPN network
+    
+    Returns:
+    P_hat_2 : A multi cross scale learnable fusion of all pyramidal layers
+    '''
+    # Resize all pyramidal layers to the size of P2
+    # P2 is the same size as P2 hat, therefore we keep it the same
+    P2_resized = P2
+    # P2 is double the size of P3. 
+    P3_resized = KL.UpSampling2D(size=(2,2), interpolation='nearest', name = 'P3_resized')(P3)
+    # P2 is quadruple the size of P4. 
+    P4_resized = KL.UpSampling2D(size=(4,4), interpolation='nearest', name = 'P4_resized')(P4)
+    # P2 is eight times the size of P5. 
+    P5_resized = KL.UpSampling2D(size=(8,8), interpolation='nearest', name = 'P5_resized')(P5)
+    
+    # Implementing adaptive learning
+    lambda2to2 = KL.Conv2D(filters, (1,1),)(P2_resized)
+    lambda3to2 = KL.Conv2D(filters, (1,1),)(P3_resized)
+    lambda4to2 = KL.Conv2D(filters, (1,1),)(P4_resized)
+    lambda5to2 = KL.Conv2D(filters, (1,1),)(P5_resized)
+    
+    # Channel-wise concatenation
+    concatenated_layer = tf.concat([lambda2to2, lambda3to2, lambda4to2, lambda5to2], axis=3)
+    # Obtain fusion score for each layer
+    softmax_layer = KL.Softmax(axis=3)
+    alpha = softmax_layer(concatenated_layer)
+    
+    # Scale-wise multiplication
+    p_hat_2 = tf.multiply(alpha, concatenated_layer)
+    
+    
+    #Compressor
+    p_hat_2 = KL.Conv2D(filters, (1,1),)(p_hat_2)
+    
+    return p_hat_2
+
+def get_p_hat_3(P2, P3, P4, P5, filters):
+    '''
+    Arguments:
+    P2 : The P2 layer received from the backbone FPN network
+    P3 : The P3 layer received from the backbone FPN network
+    P4 : The P4 layer received from the backbone FPN network
+    P5 : The P5 layer received from the backbone FPN network
+    
+    Returns:
+    P_hat_2 : A multi cross scale learnable fusion of all pyramidal layers
+    '''
+    # Resize all pyramidal layers to the size of P2
+    # P2 is the same size as P2 hat, therefore we keep it the same
+    P2_resized = KL.MaxPooling2D(strides=(2,2), name = 'P2_resized_')(P2)
+    # P2 is double the size of P3. 
+    P3_resized = P3
+    # P2 is quadruple the size of P4. 
+    P4_resized = KL.UpSampling2D(size=(2,2), interpolation='nearest', name = 'P4_resized_')(P4)
+    # P2 is eight times the size of P5. 
+    P5_resized = KL.UpSampling2D(size=(4,4), interpolation='nearest', name = 'P5_resized_')(P5)
+    
+    # Implementing adaptive learning
+    lambda2to3 = KL.Conv2D(filters, (1,1),)(P2_resized)
+    lambda3to3 = KL.Conv2D(filters, (1,1),)(P3_resized)
+    lambda4to3 = KL.Conv2D(filters, (1,1),)(P4_resized)
+    lambda5to3 = KL.Conv2D(filters, (1,1),)(P5_resized)
+    
+    # Channel-wise concatenation
+    concatenated_layer = tf.concat([lambda2to3, lambda3to3, lambda4to3, lambda5to3], axis=3)
+    
+    # Obtain fusion score for each layer
+    softmax_layer = KL.Softmax(axis=3)
+    alpha = softmax_layer(concatenated_layer)
+    
+    # Scale-wise multiplication
+    p_hat_3 = tf.multiply(alpha, concatenated_layer)
+    
+    #Compressor
+    p_hat_3 = KL.Conv2D(filters, (1,1),)(p_hat_3)
+    
+    return p_hat_3
+
+def get_p_hat_4(P2, P3, P4, P5, filters):
+    '''
+    Arguments:
+    P2 : The P2 layer received from the backbone FPN network
+    P3 : The P3 layer received from the backbone FPN network
+    P4 : The P4 layer received from the backbone FPN network
+    P5 : The P5 layer received from the backbone FPN network
+    
+    Returns:
+    P_hat_2 : A multi cross scale learnable fusion of all pyramidal layers
+    '''
+    # Resize all pyramidal layers to the size of P2
+    # P2 is the same size as P2 hat, therefore we keep it the same
+    # Kernel size mentioned in the paper is (3,3), however since it gives wrong size, we utilize kernel size (2, 2)
+    P2_resized = KL.MaxPooling2D(strides=(2,2), name = 'P2_resized__')(KL.Conv2D(2, kernel_size=(2,2), strides=(2,2))(P2))
+    # P2 is double the size of P3. 
+    P3_resized = KL.MaxPooling2D(strides=(2,2), name = 'P3_resized__')(P3)
+    # P2 is quadruple the size of P4. 
+    P4_resized = P4
+    # P2 is eight times the size of P5. 
+    P5_resized = KL.UpSampling2D(size=(2,2), interpolation='nearest', name = 'P5_resized__')(P5)
+    
+    # Implementing adaptive learning
+    lambda2to4 = KL.Conv2D(filters, (1,1),)(P2_resized)
+    lambda3to4 = KL.Conv2D(filters, (1,1),)(P3_resized)
+    lambda4to4 = KL.Conv2D(filters, (1,1),)(P4_resized)
+    lambda5to4 = KL.Conv2D(filters, (1,1),)(P5_resized)
+    
+    # Channel-wise concatenation
+    concatenated_layer = tf.concat([lambda2to4, lambda3to4, lambda4to4, lambda5to4], axis=3)
+    
+    # Obtain fusion score for each layer
+    softmax_layer = KL.Softmax(axis=3)
+    alpha = softmax_layer(concatenated_layer)
+    
+    # Scale-wise multiplication
+    p_hat_4 = tf.multiply(alpha, concatenated_layer)
+    
+    #Compressor
+    p_hat_4 = KL.Conv2D(filters, (1,1),)(p_hat_4)
+    
+    return p_hat_4
+
+def get_p_hat_5(P2, P3, P4, P5, filters):
+    '''
+    Arguments:
+    P2 : The P2 layer received from the backbone FPN network
+    P3 : The P3 layer received from the backbone FPN network
+    P4 : The P4 layer received from the backbone FPN network
+    P5 : The P5 layer received from the backbone FPN network
+    
+    Returns:
+    P_hat_2 : A multi cross scale learnable fusion of all pyramidal layers
+    '''
+    # Resize all pyramidal layers to the size of P2
+    # P2 is the same size as P2 hat, therefore we keep it the same
+    # Kernel size mentioned in the paper is (3,3), however since it gives wrong size, we utilize kernel size (2, 2)
+    P2_resized = KL.MaxPooling2D(strides=(2,2))(KL.MaxPooling2D(strides=(2,2), name = 'P2_resized___')(KL.Conv2D(2, kernel_size=(2,2), strides=(2,2))(P2)))
+    # P2 is double the size of P3. 
+    P3_resized = KL.MaxPooling2D(strides=(2,2), name = 'P3_resized___')(KL.Conv2D(2, kernel_size=(2,2), strides=(2,2))(P3))
+    # P2 is quadruple the size of P4. 
+    P4_resized = KL.MaxPooling2D(strides=(2,2), name = 'P4_resized___')(P4)
+    # P2 is eight times the size of P5. 
+    P5_resized = P5
+    
+    # Implementing adaptive learning
+    lambda2to5 = KL.Conv2D(filters, (1,1),)(P2_resized)
+    lambda3to5 = KL.Conv2D(filters, (1,1),)(P3_resized)
+    lambda4to5 = KL.Conv2D(filters, (1,1),)(P4_resized)
+    lambda5to5 = KL.Conv2D(filters, (1,1),)(P5_resized)
+    
+    # Channel-wise concatenation
+    concatenated_layer = tf.concat([lambda2to5, lambda3to5, lambda4to5, lambda5to5], axis=3)
+    
+    # Obtain fusion score for each layer
+    softmax_layer = KL.Softmax(axis=3)
+    alpha = softmax_layer(concatenated_layer)
+    
+    # Scale-wise multiplication
+    p_hat_5 = tf.multiply(alpha, concatenated_layer)
+    
+    #Compressor
+    p_hat_5 = KL.Conv2D(filters, (1,1),)(p_hat_5)
+    
+    return p_hat_5
