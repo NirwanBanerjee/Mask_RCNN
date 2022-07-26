@@ -891,7 +891,7 @@ def denorm_boxes(boxes, shape):
     return np.around(np.multiply(boxes, scale) + shift).astype(np.int32)
 
 
-def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
+def resize(image, output_shape, order=0, mode='constant', cval=0, clip=True,
            preserve_range=False, anti_aliasing=False, anti_aliasing_sigma=None):
     """A wrapper for Scikit-Image resize().
 
@@ -950,13 +950,13 @@ def get_p_hat_2(P2, P3, P4, P5, filters):
     lambda5to2 = KL.Conv2D(filters, (1,1),)(P5_resized)
     
     # Channel-wise concatenation
-    concatenated_layer = tf.concat([lambda2to2, lambda3to2, lambda4to2, lambda5to2], axis=3)
+    concatenated_layer = KL.Concatenate(axis=3)([lambda2to2, lambda3to2, lambda4to2, lambda5to2])
     # Obtain fusion score for each layer
     softmax_layer = KL.Softmax(axis=3)
     alpha = softmax_layer(concatenated_layer)
     
     # Scale-wise multiplication
-    p_hat_2 = tf.multiply(alpha, concatenated_layer)
+    p_hat_2 = KL.Multiply()([alpha, concatenated_layer])
     
     
     #Compressor
@@ -992,14 +992,14 @@ def get_p_hat_3(P2, P3, P4, P5, filters):
     lambda5to3 = KL.Conv2D(filters, (1,1),)(P5_resized)
     
     # Channel-wise concatenation
-    concatenated_layer = tf.concat([lambda2to3, lambda3to3, lambda4to3, lambda5to3], axis=3)
+    concatenated_layer = KL.Concatenate(axis=3)([lambda2to3, lambda3to3, lambda4to3, lambda5to3])
     
     # Obtain fusion score for each layer
     softmax_layer = KL.Softmax(axis=3)
     alpha = softmax_layer(concatenated_layer)
     
     # Scale-wise multiplication
-    p_hat_3 = tf.multiply(alpha, concatenated_layer)
+    p_hat_3 = KL.Multiply()([alpha, concatenated_layer])
     
     #Compressor
     p_hat_3 = KL.Conv2D(filters, (1,1),)(p_hat_3)
@@ -1035,14 +1035,14 @@ def get_p_hat_4(P2, P3, P4, P5, filters):
     lambda5to4 = KL.Conv2D(filters, (1,1),)(P5_resized)
     
     # Channel-wise concatenation
-    concatenated_layer = tf.concat([lambda2to4, lambda3to4, lambda4to4, lambda5to4], axis=3)
+    concatenated_layer = KL.Concatenate(axis=3)([lambda2to4, lambda3to4, lambda4to4, lambda5to4])
     
     # Obtain fusion score for each layer
     softmax_layer = KL.Softmax(axis=3)
     alpha = softmax_layer(concatenated_layer)
     
     # Scale-wise multiplication
-    p_hat_4 = tf.multiply(alpha, concatenated_layer)
+    p_hat_4 = KL.Multiply()([alpha, concatenated_layer])
     
     #Compressor
     p_hat_4 = KL.Conv2D(filters, (1,1),)(p_hat_4)
@@ -1078,14 +1078,14 @@ def get_p_hat_5(P2, P3, P4, P5, filters):
     lambda5to5 = KL.Conv2D(filters, (1,1),)(P5_resized)
     
     # Channel-wise concatenation
-    concatenated_layer = tf.concat([lambda2to5, lambda3to5, lambda4to5, lambda5to5], axis=3)
+    concatenated_layer = KL.Concatenate(axis=3)([lambda2to5, lambda3to5, lambda4to5, lambda5to5])
     
     # Obtain fusion score for each layer
     softmax_layer = KL.Softmax(axis=3)
     alpha = softmax_layer(concatenated_layer)
     
     # Scale-wise multiplication
-    p_hat_5 = tf.multiply(alpha, concatenated_layer)
+    p_hat_5 = KL.Multiply()([alpha, concatenated_layer])
     
     #Compressor
     p_hat_5 = KL.Conv2D(filters, (1,1),)(p_hat_5)
