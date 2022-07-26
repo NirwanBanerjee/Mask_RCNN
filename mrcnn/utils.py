@@ -64,6 +64,105 @@ def extract_bboxes(mask):
     return boxes.astype(np.int32)
 
 
+def compute_constrained_iou(box, boxes, box_area, boxes_area):
+    """Calculates IoU of the given box with the array of the given boxes.
+    box: 1D vector [y1, x1, y2, x2]
+    boxes: [boxes_count, (y1, x1, y2, x2)]
+    box_area: float. the area of 'box'
+    boxes_area: array of length boxes_count.
+
+    Note: the areas are passed in rather than calculated here for
+    efficiency. Calculate once in the caller to avoid duplicate work.
+    """
+    # Calculate intersection areas
+    y1 = np.maximum(box[0], boxes[:, 0])
+    y2 = np.minimum(box[2], boxes[:, 2])
+    x1 = np.maximum(box[1], boxes[:, 1])
+    x2 = np.minimum(box[3], boxes[:, 3])
+    intersection = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)
+    union = box_area + boxes_area[:] - intersection[:]
+    # To compute smallest rectangle enclosing area and delta
+    ry1 = np.minimum(box[0], boxes[:, 0])
+    ry2 = np.maximum(box[2], boxes[:, 2])
+    rx1 = np.minimum(box[1], boxes[:, 1])
+    rx2 = np.maximum(box[3], boxes[:, 3])
+    R = np.abs(ry2 - ry1) * np.abs(rx2 - rx1)
+    delta = np.abs(R - union) / np.abs(R)
+    
+    # Compute constrained IoU
+    constrained_iou = (intersection / union) - delta
+    return constrained_iou
+
+def compute_distance_between_center_of_boxes(gt_boxes, anchor_box):
+    '''
+    Calculates distance between centre of a gt_box with array of anchor boxes
+    gt_box : 
+    '''
+    distance = []
+    for i in range(len(gt_boxes)):
+        gt_x = gt_boxes[i][0]
+        gt_y = gt_boxes[i][1]
+        anc_x = anchor_box[0]
+        anc_y = anchor_box[1]
+        
+        distance.append(math.sqrt((gt_x - anc_x)**2 + (gt_y - anc_y)**2))
+    distance.sort()
+    return np.asarray(distance)
+
+def compute_threshold(gt_boxes, anchor_boxes, k = 10, ):
+    '''
+    Calculates the threshold dynamically for the RPN
+    gt_boxes : Set of Ground truth boxes
+    anchor_boxes : Set of anchor boxes
+    k : Top closest anchor boxes which are labeled as set of candidate positive samples
+    '''
+    threshold_list = []
+    centre_of_gt_boxes = []
+    centre_of_anchor_boxes = []
+    overlaps = np.zeros((anchor_boxes.shape[0], gt_boxes.shape[0]))
+    
+    for i in range(len(gt_boxes)):    
+        centre_of_gt_boxes.append(((gt_boxes[i][1] + gt_boxes[i][3])/2, (gt_boxes[i][2] + gt_boxes[i][0])/2))
+    
+    for i in range((len(anchor_boxes))):
+        centre_of_anchor_boxes.append(((anchor_boxes[i][1] + anchor_boxes[i][3])/2, (anchor_boxes[i][2] + anchor_boxes[i][0])/2))
+    
+    
+    for i in range(overlaps.shape[0]):
+        distances = compute_distance_between_center_of_boxes(centre_of_gt_boxes, centre_of_anchor_boxes[i])
+        # Select top k candidates
+        top_k_candidates = distances[0:k]
+        # Calculate mean and standard deviation
+        mg = np.mean(top_k_candidates)
+        vg = np.std(top_k_candidates)
+        # Calculate threshold  for ground truth g
+        tg = mg + vg
+        threshold_list.append(tg)
+        
+    
+    return np.asarray(threshold_list)     
+
+def compute_overlaps(boxes1, boxes2):
+    """Computes IoU overlaps between two sets of boxes.
+    boxes1, boxes2: [N, (y1, x1, y2, x2)].
+
+    For better performance, pass the largest set first and the smaller second.
+    """
+    
+    # Areas of anchors and GT boxes
+    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
+    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
+
+    # Compute overlaps to generate matrix [boxes1 count, boxes2 count]
+    # Each cell contains the IoU value.
+    overlaps = np.zeros((boxes1.shape[0], boxes2.shape[0]))
+    for i in range(overlaps.shape[1]):
+        box2 = boxes2[i]
+        overlaps[:, i] = compute_constrained_iou(box2, boxes1, area2[i], area1)
+    #ipdb.set_trace()
+    return overlaps
+
+
 def compute_iou(box, boxes, box_area, boxes_area):
     """Calculates IoU of the given box with the array of the given boxes.
     box: 1D vector [y1, x1, y2, x2]
@@ -83,25 +182,6 @@ def compute_iou(box, boxes, box_area, boxes_area):
     union = box_area + boxes_area[:] - intersection[:]
     iou = intersection / union
     return iou
-
-
-def compute_overlaps(boxes1, boxes2):
-    """Computes IoU overlaps between two sets of boxes.
-    boxes1, boxes2: [N, (y1, x1, y2, x2)].
-
-    For better performance, pass the largest set first and the smaller second.
-    """
-    # Areas of anchors and GT boxes
-    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
-    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
-
-    # Compute overlaps to generate matrix [boxes1 count, boxes2 count]
-    # Each cell contains the IoU value.
-    overlaps = np.zeros((boxes1.shape[0], boxes2.shape[0]))
-    for i in range(overlaps.shape[1]):
-        box2 = boxes2[i]
-        overlaps[:, i] = compute_iou(box2, boxes1, area2[i], area1)
-    return overlaps
 
 
 def compute_overlaps_masks(masks1, masks2):
@@ -646,6 +726,147 @@ def generate_pyramid_anchors(scales, ratios, feature_shapes, feature_strides,
     return np.concatenate(anchors, axis=0)
 
 
+
+################################################################
+# Dynamic NMS Part
+################################################################
+
+
+
+def tf_delete(tensor,index,row=True):
+    
+    if row:
+        sub = list(range(tensor.shape[0]))
+    else:
+        sub = list(range(tensor.shape[1]))
+    sub.pop(index)
+    
+    if row:
+        return  tf.gather(tensor,sub)
+    return tf.transpose(tf.gather(tf.transpose(tensor),sub))
+
+
+def compute_distance_between_center_of_boxes_of_tensors(gt_boxes, anchor_box):
+    '''
+    Calculates distance between centre of a gt_box with array of anchor boxes
+    gt_box : 
+    '''
+    distance = []
+    for i in range(len(gt_boxes)):
+        gt_x = gt_boxes[i][0]
+        gt_y = gt_boxes[i][1]
+        anc_x = anchor_box[0][0]
+        anc_y = anchor_box[0][1]
+        
+        dis = tf.math.sqrt((gt_x - anc_x)**2 + (gt_y - anc_y)**2)
+        #ipdb.set_trace()
+        #dis = dis.numpy()
+        distance.append(dis)
+    distance = tf.sort(distance)
+    return tf.convert_to_tensor(distance)
+
+def compute_nms_threshold(box, boxes):
+    '''
+    Computes the nms threshold of one box with others
+    '''
+    threshold_list = []
+    centre_of_box = []
+    centre_of_boxes = []
+    
+    
+    
+    
+    centre_of_box.append(((box[1] + box[3])/2, (box[2] + box[0])/2))
+    
+    for i in range(boxes.shape[0]):
+        centre_of_boxes.append(((boxes[i][1] + boxes[i][3])/2, (boxes[i][2] + boxes[i][0])/2))
+        
+    distances = compute_distance_between_center_of_boxes_of_tensors(centre_of_boxes, centre_of_box)
+        
+    mg = tf.math.reduce_mean(distances)
+    vg = tf.math.reduce_std(distances)
+        
+    tg = mg + vg
+    
+    
+    
+    return (1 - tg)
+
+def dynamic_non_max_suppression(boxes, scores,):
+    """Performs non-maximum suppression and returns indices of kept boxes.
+    boxes: [N, (y1, x1, y2, x2)]. Notice that (y2, x2) lays outside the box.
+    scores: 1-D array of box scores.
+    threshold: Float. IoU threshold to use for filtering.
+    """
+    assert boxes.shape[0] > 0
+    '''if boxes.dtype.kind != "f":
+        boxes = boxes.astype(np.float32)'''
+    
+    #tf.config.run_functions_eagerly(True)
+    
+    #boxes=boxes.eval(session=tf.compat.v1.Session())
+    #scores=scores.eval(session=tf.compat.v1.Session())
+    
+    
+    # Compute box areas
+    y1 = boxes[:, 0]
+    x1 = boxes[:, 1]
+    y2 = boxes[:, 2]
+    x2 = boxes[:, 3]
+    area = (y2 - y1) * (x2 - x1)
+
+    # Get indicies of boxes sorted by scores (highest first)
+    
+    
+    ixs = tf.argsort(scores)[::-1]
+    pick = []
+    while len(ixs) > 0:
+        # Pick top box and add its index to the list
+        i = ixs[0]
+        pick.append(i)
+        #slice = []
+        threshold = compute_nms_threshold(boxes[i], boxes)
+        '''for i in ixs[1:]:
+            ipdb.set_trace()
+            slice.append(int(i))'''
+        slice = ixs[1:]
+        #slice = np.asarray(slice)
+        ipdb.set_trace()    
+        # Compute IoU of the picked box with the rest
+        iou = compute_tensor_iou(boxes[i], boxes[slice], area[i], area[slice])
+        # Identify boxes with IoU over the threshold. This
+        # returns indices into ixs[1:], so add 1 to get
+        # indices into ixs.
+        #ipdb.set_trace()
+        remove_ixs = tf.where(iou > (1 - threshold))[0] + 1
+        ipdb.set_trace()
+        # Remove indices of the picked and overlapped boxes.
+        ixs = tf_delete(ixs, remove_ixs)
+        ixs = tf_delete(ixs, 0)
+    return tf.convert_to_tensor(pick, dtype=tf.int32)
+
+def compute_tensor_iou(box, boxes, box_area, boxes_area):
+    """Calculates IoU of the given box with the array of the given boxes.
+    box: 1D vector [y1, x1, y2, x2]
+    boxes: [boxes_count, (y1, x1, y2, x2)]
+    box_area: float. the area of 'box'
+    boxes_area: array of length boxes_count.
+
+    Note: the areas are passed in rather than calculated here for
+    efficiency. Calculate once in the caller to avoid duplicate work.
+    """
+    
+    # Calculate intersection areas
+    y1 = tf.maximum(boxes[:,:,0], box[0], )
+    y2 = tf.minimum(boxes[:,:,2], box[2], )
+    x1 = tf.maximum(boxes[:,:,1], box[1], )
+    x2 = tf.minimum(boxes[:,:,3], box[3], )
+    intersection = tf.maximum(x2 - x1, 0) * tf.maximum(y2 - y1, 0)
+    
+    union = box_area + boxes_area[:] - intersection[:]
+    iou = intersection / union
+    return iou
+
 ############################################################
 #  Miscellaneous
 ############################################################
@@ -891,7 +1112,7 @@ def denorm_boxes(boxes, shape):
     return np.around(np.multiply(boxes, scale) + shift).astype(np.int32)
 
 
-def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
+def resize(image, output_shape, order=0, mode='constant', cval=0, clip=True,
            preserve_range=False, anti_aliasing=False, anti_aliasing_sigma=None):
     """A wrapper for Scikit-Image resize().
 
@@ -950,13 +1171,13 @@ def get_p_hat_2(P2, P3, P4, P5, filters):
     lambda5to2 = KL.Conv2D(filters, (1,1),)(P5_resized)
     
     # Channel-wise concatenation
-    concatenated_layer = tf.concat([lambda2to2, lambda3to2, lambda4to2, lambda5to2], axis=3)
+    concatenated_layer = KL.Concatenate(axis=3)([lambda2to2, lambda3to2, lambda4to2, lambda5to2])
     # Obtain fusion score for each layer
     softmax_layer = KL.Softmax(axis=3)
     alpha = softmax_layer(concatenated_layer)
     
     # Scale-wise multiplication
-    p_hat_2 = tf.multiply(alpha, concatenated_layer)
+    p_hat_2 = KL.Multiply()([alpha, concatenated_layer])
     
     
     #Compressor
@@ -992,14 +1213,14 @@ def get_p_hat_3(P2, P3, P4, P5, filters):
     lambda5to3 = KL.Conv2D(filters, (1,1),)(P5_resized)
     
     # Channel-wise concatenation
-    concatenated_layer = tf.concat([lambda2to3, lambda3to3, lambda4to3, lambda5to3], axis=3)
+    concatenated_layer = KL.Concatenate(axis=3)([lambda2to3, lambda3to3, lambda4to3, lambda5to3])
     
     # Obtain fusion score for each layer
     softmax_layer = KL.Softmax(axis=3)
     alpha = softmax_layer(concatenated_layer)
     
     # Scale-wise multiplication
-    p_hat_3 = tf.multiply(alpha, concatenated_layer)
+    p_hat_3 = KL.Multiply()([alpha, concatenated_layer])
     
     #Compressor
     p_hat_3 = KL.Conv2D(filters, (1,1),)(p_hat_3)
@@ -1035,14 +1256,14 @@ def get_p_hat_4(P2, P3, P4, P5, filters):
     lambda5to4 = KL.Conv2D(filters, (1,1),)(P5_resized)
     
     # Channel-wise concatenation
-    concatenated_layer = tf.concat([lambda2to4, lambda3to4, lambda4to4, lambda5to4], axis=3)
+    concatenated_layer = KL.Concatenate(axis=3)([lambda2to4, lambda3to4, lambda4to4, lambda5to4])
     
     # Obtain fusion score for each layer
     softmax_layer = KL.Softmax(axis=3)
     alpha = softmax_layer(concatenated_layer)
     
     # Scale-wise multiplication
-    p_hat_4 = tf.multiply(alpha, concatenated_layer)
+    p_hat_4 = KL.Multiply()([alpha, concatenated_layer])
     
     #Compressor
     p_hat_4 = KL.Conv2D(filters, (1,1),)(p_hat_4)
@@ -1078,14 +1299,14 @@ def get_p_hat_5(P2, P3, P4, P5, filters):
     lambda5to5 = KL.Conv2D(filters, (1,1),)(P5_resized)
     
     # Channel-wise concatenation
-    concatenated_layer = tf.concat([lambda2to5, lambda3to5, lambda4to5, lambda5to5], axis=3)
+    concatenated_layer = KL.Concatenate(axis=3)([lambda2to5, lambda3to5, lambda4to5, lambda5to5])
     
     # Obtain fusion score for each layer
     softmax_layer = KL.Softmax(axis=3)
     alpha = softmax_layer(concatenated_layer)
     
     # Scale-wise multiplication
-    p_hat_5 = tf.multiply(alpha, concatenated_layer)
+    p_hat_5 = KL.Multiply()([alpha, concatenated_layer])
     
     #Compressor
     p_hat_5 = KL.Conv2D(filters, (1,1),)(p_hat_5)

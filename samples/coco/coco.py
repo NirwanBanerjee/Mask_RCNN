@@ -47,9 +47,14 @@ import zipfile
 import urllib.request
 import shutil
 
+import warnings
+warnings.filterwarnings("ignore")
+
+
+
 # Root directory of the project
 ROOT_DIR = os.path.abspath(r"D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2")
-print("PANet")
+print("In ASI")
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn.config import Config
@@ -67,6 +72,7 @@ DEFAULT_DATASET_YEAR = "2014"
 #  Configurations
 ############################################################
 
+#PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
 class CocoConfig(Config):
     """Configuration for training on MS COCO.
@@ -74,14 +80,14 @@ class CocoConfig(Config):
     to the COCO dataset.
     """
     # Give the configuration a recognizable name
-    NAME = "panet"
+    NAME = "ASI_woDSS_"
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
-    IMAGES_PER_GPU = 2
+    IMAGES_PER_GPU = 1
 
     # Uncomment to train on 8 GPUs (default is 1)
-    #GPU_COUNT = 4
+    GPU_COUNT = 4
 
     # Number of classes (including background)
     NUM_CLASSES = 1 + 80  # COCO has 80 classes
@@ -262,7 +268,7 @@ class CocoDataset(utils.Dataset):
 
         # Pack instance masks into an array
         if class_ids:
-            mask = np.stack(instance_masks, axis=2).astype(np.bool)
+            mask = np.stack(instance_masks, axis=2).astype(bool)
             class_ids = np.array(class_ids, dtype=np.int32)
             return mask, class_ids
         else:
@@ -499,7 +505,7 @@ if __name__ == '__main__':
         print("Training network heads")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=1,
+                    epochs=20,
                     layers='heads',
                     augmentation=augmentation)
 
@@ -508,7 +514,7 @@ if __name__ == '__main__':
         print("Fine tune Resnet stage 4 and up")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=1,
+                    epochs=40,
                     layers='4+',
                     augmentation=augmentation)
 
@@ -517,7 +523,7 @@ if __name__ == '__main__':
         print("Fine tune all layers")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE / 10,
-                    epochs=1,
+                    epochs=80,
                     layers='all',
                     augmentation=augmentation)
 
@@ -528,7 +534,7 @@ if __name__ == '__main__':
         coco = dataset_val.load_coco(args.dataset, val_type, year=args.year, return_coco=True, auto_download=args.download)
         dataset_val.prepare()
         print("Running COCO evaluation on {} images.".format(args.limit))
-        evaluate_coco(model, dataset_val, coco, "bbox", limit=int(args.limit))
+        evaluate_coco(model, dataset_val, coco, "segm", limit=int(args.limit))
     else:
         print("'{}' is not recognized. "
               "Use 'train' or 'evaluate'".format(args.command))

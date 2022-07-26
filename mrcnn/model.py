@@ -15,6 +15,7 @@ import math
 import logging
 from collections import OrderedDict
 import multiprocessing
+from cv2 import threshold
 import numpy as np
 import tensorflow as tf
 import keras
@@ -30,7 +31,6 @@ from mrcnn.group_norm import GroupNormalization as GroupNorm
 from distutils.version import LooseVersion
 assert LooseVersion(tf.__version__) >= LooseVersion("1.3")
 assert LooseVersion(keras.__version__) >= LooseVersion('2.0.8')
-
 
 ############################################################
 #  Utility Functions
@@ -320,6 +320,7 @@ class ProposalLayer(KE.Layer):
             indices = tf.image.non_max_suppression(
                 boxes, scores, self.proposal_count,
                 self.nms_threshold, name="rpn_non_max_suppression")
+            #indices = utils.dynamic_non_max_suppression(boxes, scores)
             proposals = tf.gather(boxes, indices)
             # Pad if needed
             padding = tf.maximum(self.proposal_count - tf.shape(proposals)[0], 0)
@@ -527,8 +528,8 @@ def overlaps_graph(boxes1, boxes2):
     # TF doesn't have an equivalent to np.repeat() so simulate it
     # using tf.tile() and tf.reshape.
     b1 = tf.reshape(tf.tile(tf.expand_dims(boxes1, 1),
-                            [1, 1, tf.shape(boxes2)[0]]), [-1, 4])
-    b2 = tf.tile(boxes2, [tf.shape(boxes1)[0], 1])
+                            [1, 1, tf.shape(input=boxes2)[0]]), [-1, 4])
+    b2 = tf.tile(boxes2, [tf.shape(input=boxes1)[0], 1])
     # 2. Compute intersections
     b1_y1, b1_x1, b1_y2, b1_x2 = tf.split(b1, 4, axis=1)
     b2_y1, b2_x1, b2_y2, b2_x2 = tf.split(b2, 4, axis=1)
@@ -541,9 +542,16 @@ def overlaps_graph(boxes1, boxes2):
     b1_area = (b1_y2 - b1_y1) * (b1_x2 - b1_x1)
     b2_area = (b2_y2 - b2_y1) * (b2_x2 - b2_x1)
     union = b1_area + b2_area - intersection
-    # 4. Compute IoU and reshape to [boxes1, boxes2]
-    iou = intersection / union
-    overlaps = tf.reshape(iou, [tf.shape(boxes1)[0], tf.shape(boxes2)[0]])
+    # 4. Compute smallest recatngle enclosing area and delta
+    ry1 = tf.minimum(b1_y1, b2_y1)
+    rx1 = tf.minimum(b1_x1, b2_x1)
+    ry2 = tf.maximum(b1_y2, b2_y2)
+    rx2 = tf.maximum(b1_x2, b2_x2)
+    R = tf.math.abs(ry2 - ry1) * tf.math.abs(rx2 - rx1)
+    delta = tf.math.abs(R - union) / tf.math.abs(R)
+    # 5. Compute IoU and reshape to [boxes1, boxes2]
+    constrained_iou = (intersection / union) - delta
+    overlaps = tf.reshape(constrained_iou, [tf.shape(input=boxes1)[0], tf.shape(input=boxes2)[0]])
     return overlaps
 
 
@@ -1690,6 +1698,11 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
     # Compute overlaps [num_anchors, num_gt_boxes]
     overlaps = utils.compute_overlaps(anchors, gt_boxes)
 
+    
+    ################################################################
+    # DSS should be called here
+    #threshold_list = utils.compute_threshold(gt_boxes, anchors,)
+    threshold_list = 0.7
     # Match anchors to GT Boxes
     # If an anchor overlaps a GT box with IoU >= 0.7 then it's positive.
     # If an anchor overlaps a GT box with IoU < 0.3 then it's negative.
@@ -1708,7 +1721,7 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
     gt_iou_argmax = np.argwhere(overlaps == np.max(overlaps, axis=0))[:,0]
     rpn_match[gt_iou_argmax] = 1
     # 3. Set anchors with high overlap as positive.
-    rpn_match[anchor_iou_max >= 0.7] = 1
+    rpn_match[anchor_iou_max >= threshold_list] = 1
 
     # Subsample to balance positive and negative anchors
     # Don't let positives be more than half the anchors
@@ -2156,7 +2169,33 @@ class MaskRCNN():
         P_hat_5 = utils.get_p_hat_5(P2, P3, P4, P5, config.TOP_DOWN_PYRAMID_SIZE)
         
         
+        
         # Bottom-up path augmentation	
+        '''N2 = P2	
+        N3 = KL.Activation(activation='relu', name='panet_n3_gn_relu')(	
+            GroupNorm(name='panet_n3_gn')(	
+            KL.Conv2D(config.TOP_DOWN_PYRAMID_SIZE, (3, 3), padding='same', name='panet_n3')(	
+            KL.Add(name='panet_n3add')([P3,	
+            KL.Activation(activation='relu', name='panet_n2p3_gn_relu')(	
+                GroupNorm(name='panet_n2p3_gn')(	
+                KL.Conv2D(config.TOP_DOWN_PYRAMID_SIZE, (3, 3), strides=(2, 2), padding='same', name='panet_n2p3')(N2)))]))))	
+        N4 = KL.Activation(activation='relu', name='panet_n4_gn_relu')(	
+            GroupNorm(name='panet_n4_gn')(	
+            KL.Conv2D(config.TOP_DOWN_PYRAMID_SIZE, (3, 3), padding='same', name='panet_n4')(	
+            KL.Add(name='panet_n4add')([P4,	
+            KL.Activation(activation='relu', name='panet_n3p4_gn_relu')(	
+                GroupNorm(name='panet_n3p4_gn')(	
+                KL.Conv2D(config.TOP_DOWN_PYRAMID_SIZE, (3, 3), strides=(2, 2), padding='same', name='panet_n3p4')(N3)))]))))	
+        N5 = KL.Activation(activation='relu', name='panet_n5_gn_relu')(	
+            GroupNorm(name='panet_n5_gn')(	
+            KL.Conv2D(config.TOP_DOWN_PYRAMID_SIZE, (3, 3), padding='same', name='panet_n5')(	
+            KL.Add(name='panet_n5add')([P5,	
+                KL.Activation(activation='relu', name='panet_n4p5_gn_relu')(	
+                GroupNorm(name='panet_n4p5_gn')(	
+                KL.Conv2D(config.TOP_DOWN_PYRAMID_SIZE, (3, 3), strides=(2, 2), padding='same', name='panet_n4p5')(N4)))]))))	
+        N6 = KL.MaxPooling2D(pool_size=(1, 1), strides=2, name="panet_n6")(N5)'''
+        
+        
         N2 = P_hat_2	
         N3 = KL.Activation(activation='relu', name='panet_n3_gn_relu')(	
             GroupNorm(name='panet_n3_gn')(	
@@ -2180,6 +2219,8 @@ class MaskRCNN():
                 GroupNorm(name='panet_n4p5_gn')(	
                 KL.Conv2D(config.TOP_DOWN_PYRAMID_SIZE, (3, 3), strides=(2, 2), padding='same', name='panet_n4p5')(N4)))]))))	
         N6 = KL.MaxPooling2D(pool_size=(1, 1), strides=2, name="panet_n6")(N5)	
+        
+     
         
         rpn_feature_maps = [N2, N3, N4, N5, N6]	
         mrcnn_feature_maps = [N2, N3, N4, N5]
