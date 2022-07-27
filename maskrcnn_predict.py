@@ -28,23 +28,32 @@ model = mrcnn.model.MaskRCNN(mode="inference",
                              model_dir=os.getcwd())
 
 # Load the weights into the model.
-model.load_weights(filepath="mask_rcnn_coco.h5", 
-                   by_name=True)
+file_dir = r'D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\logs\asi_wodss_20220725T0747'
+i=0
+for files in os.listdir(file_dir): 
 
-# load the input image, convert it from BGR to RGB channel
-image = cv2.imread("test1.jpg")
-image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    file = os.path.join(file_dir, files)
+    
+    model.load_weights(filepath=file, 
+                    by_name=True)
 
-# Perform a forward pass of the network to obtain the results
-r = model.detect([image])
+    # load the input image, convert it from BGR to RGB channel
+    image = cv2.imread("test.jpg")
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-# Get the results for the first image.
-r = r[0]
+    # Perform a forward pass of the network to obtain the results
+    r = model.detect([image])
 
-# Visualize the detected objects.
-mrcnn.visualize.display_instances(image=image, 
-                                  boxes=r['rois'], 
-                                  masks=r['masks'], 
-                                  class_ids=r['class_ids'], 
-                                  class_names=CLASS_NAMES, 
-                                  scores=r['scores'])
+    # Get the results for the first image.
+    r = r[0]
+
+    # Visualize the detected objects.
+    mrcnn.visualize.display_instances(image=image, 
+                                    boxes=r['rois'], 
+                                    masks=r['masks'], 
+                                    class_ids=r['class_ids'], 
+                                    class_names=CLASS_NAMES, 
+                                    scores=r['scores'],
+                                    save_fig_path=os.path.join(r'inferred_images\asi_wodss', str(i)),
+                                    i=i)
+    i += 1

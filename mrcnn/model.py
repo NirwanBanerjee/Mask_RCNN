@@ -22,15 +22,21 @@ import keras.backend as K
 import keras.layers as KL
 import keras.engine as KE
 import keras.models as KM
+from keras.callbacks import Callback
+
+#import tfmpl
 
 from mrcnn import utils
 from mrcnn.group_norm import GroupNormalization as GroupNorm
+import mrcnn.visualize
 
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
 from distutils.version import LooseVersion
 assert LooseVersion(tf.__version__) >= LooseVersion("1.3")
 assert LooseVersion(keras.__version__) >= LooseVersion('2.0.8')
 
+import cv2
+import skimage
 
 ############################################################
 #  Utility Functions
@@ -2644,12 +2650,107 @@ class MaskRCNN():
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
 
+
+        
+        
+        
+        # make the 1 channel input image or disparity map look good within this color map. This function is not necessary for this Tensorboard problem shown as above. Just a function used in my own research project.
+        '''def colormap_jet(img):
+            image = cv2.imread("test.jpg")
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+            # Perform a forward pass of the network to obtain the results
+            r = model.detect([image])
+
+            # Get the results for the first image.
+            r = r[0]
+
+            # Visualize the detected objects.
+            img=mrcnn.visualize.return_instances(image=image, 
+                                            boxes=r['rois'], 
+                                            masks=r['masks'], 
+                                            class_ids=r['class_ids'], 
+                                            class_names=CLASS_NAMES, 
+                                            scores=r['scores'])
+            return img
+
+        class customModelCheckpoint(Callback):
+            def __init__(self, log_dir='./logs/tmp/', feed_inputs_display=None):
+                super(customModelCheckpoint, self).__init__()
+                self.seen = 0
+                self.feed_inputs_display = feed_inputs_display
+                self.writer = tf.summary.FileWriter(log_dir)
+
+            # this function will return the feeding data for TensorBoard visualization;
+            # arguments:
+            #  * feed_input_display : [(input_yourModelNeed, left_image, disparity_gt ), ..., (input_yourModelNeed, left_image, disparity_gt), ...], i.e., the list of tuples of Numpy Arrays what your model needs as input and what you want to display using TensorBoard. Note: you have to feed the input to the model with feed_dict, if you want to get and display the output of your model. 
+            def custom_set_feed_input_to_display(self, feed_inputs_display):
+                self.feed_inputs_display = feed_inputs_display
+
+            # copied from the above answers;
+            def make_image(self, numpy_img):
+                from PIL import Image
+                height, width, channel = numpy_img.shape
+                image = Image.fromarray(numpy_img)
+                import io
+                output = io.BytesIO()
+                image.save(output, format='PNG')
+                image_string = output.getvalue()
+                output.close()
+                return tf.Summary.Image(height=height, width=width, colorspace= channel, encoded_image_string=image_string)
+
+
+            # A callback has access to its associated model through the class property self.model.
+            def on_batch_end(self, batch, logs = None):
+                logs = logs or {} 
+                self.seen += 1
+                if self.seen % 200 == 0: # every 200 iterations or batches, plot the costumed images using TensorBorad;
+                    summary_str = []
+                    for i in range(len(self.feed_inputs_display)):
+                        imgl = self.feed_inputs_display[i]
+                        
+                        disp_pred = (K.get_session().run(self.model.output, feed_dict = {self.model.input : imgl}))
+                        disp_pred = disp_pred[0]
+                        disp_pred = mrcnn.visualize.return_instances(image=image, 
+                                            boxes=r['rois'], 
+                                            masks=r['masks'], 
+                                            class_ids=r['class_ids'], 
+                                            class_names=CLASS_NAMES, 
+                                            scores=r['scores'])
+                        #disp_pred = np.squeeze(self.model.predict_on_batch(feature), axis = 0)
+                        summary_str.append(tf.Summary.Value(tag= 'plot/img0/{}'.format(i), image= self.make_image(imgl))) # function colormap_jet(), defined above;
+                        #summary_str.append(tf.Summary.Value(tag= 'plot/disp_gt/{}'.format(i), image= self.make_image( colormap_jet(disp_gt))))
+                        summary_str.append(tf.Summary.Value(tag= 'plot/disp/{}'.format(i), image= self.make_image((disp_pred))))
+
+                    self.writer.add_summary(tf.Summary(value = summary_str), global_step =self.seen)
+        
+        def some_function_you_wrote():
+            
+            image = cv2.imread("test.jpg")
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
+            return [(image)]
+            
+            
+            
+        feed_inputs_4_display = some_function_you_wrote()
+        callback_mc = customModelCheckpoint( log_dir = self.log_dir, feed_inputs_display = feed_inputs_4_display)'''
+        # or 
+        
         # Callbacks
         callbacks = [
             keras.callbacks.TensorBoard(log_dir=self.log_dir,
                                         histogram_freq=0, write_graph=True, write_images=False),
             keras.callbacks.ModelCheckpoint(self.checkpoint_path,
                                             verbose=0, save_weights_only=True),
+            keras.callbacks.EarlyStopping(monitor="val_loss",
+                                            min_delta=0.001,
+                                            patience=3,
+                                            verbose=1,
+                                            mode="auto",
+                                            baseline=None,
+                                            restore_best_weights=True),
+            #callback_mc,
         ]
 
         # Add custom callbacks to the list
@@ -2669,6 +2770,7 @@ class MaskRCNN():
             workers = 0
         else:
             workers = multiprocessing.cpu_count()
+            
 
         self.keras_model.fit_generator(
             train_generator,

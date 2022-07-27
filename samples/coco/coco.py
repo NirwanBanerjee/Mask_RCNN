@@ -77,7 +77,7 @@ class CocoConfig(Config):
     to the COCO dataset.
     """
     # Give the configuration a recognizable name
-    NAME = "panet"
+    NAME = "PANet_"
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
@@ -502,7 +502,7 @@ if __name__ == '__main__':
         print("Training network heads")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=10,
+                    epochs=20,
                     layers='heads',
                     augmentation=augmentation)
 
@@ -511,7 +511,7 @@ if __name__ == '__main__':
         print("Fine tune Resnet stage 4 and up")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=20,
+                    epochs=40,
                     layers='4+',
                     augmentation=augmentation)
 
@@ -520,7 +520,7 @@ if __name__ == '__main__':
         print("Fine tune all layers")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE / 10,
-                    epochs=40,
+                    epochs=80,
                     layers='all',
                     augmentation=augmentation)
 
