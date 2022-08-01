@@ -54,6 +54,8 @@ warnings.filterwarnings("ignore")
 ROOT_DIR = os.path.abspath(r"D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2")
 print("PANet")
 # Import Mask RCNN
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="3"
 sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn.config import Config
 from mrcnn import model as modellib, utils
@@ -369,6 +371,7 @@ def evaluate_coco(model, dataset, coco, eval_type="bbox", limit=0, image_ids=Non
         # Run detection
         t = time.time()
         r = model.detect([image], verbose=0)[0]
+        f = r
         t_prediction += (time.time() - t)
 
         # Convert results to COCO format
@@ -378,6 +381,8 @@ def evaluate_coco(model, dataset, coco, eval_type="bbox", limit=0, image_ids=Non
                                            r["scores"],
                                            r["masks"].astype(np.uint8))
         results.extend(image_results)
+        #import ipdb
+        #ipdb.set_trace()
 
     # Load results. This modifies results with additional attributes.
     coco_results = coco.loadRes(results)
@@ -528,7 +533,7 @@ if __name__ == '__main__':
         # Validation dataset
         dataset_val = CocoDataset()
         val_type = "val" if args.year in '2017' else "minival"
-        coco = dataset_val.load_coco(args.dataset, val_type, year=args.year, return_coco=True, auto_download=args.download)
+        coco = dataset_val.load_coco(args.dataset, val_type, year=args.year, return_coco=True, auto_download=args.download,)
         dataset_val.prepare()
         print("Running COCO evaluation on {} images.".format(args.limit))
         evaluate_coco(model, dataset_val, coco, "bbox", limit=int(args.limit))

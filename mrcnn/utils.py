@@ -63,6 +63,82 @@ def extract_bboxes(mask):
         boxes[i] = np.array([y1, x1, y2, x2])
     return boxes.astype(np.int32)
 
+def compute_constrained_iou(box, boxes, box_area, boxes_area):
+    """Calculates IoU of the given box with the array of the given boxes.
+    box: 1D vector [y1, x1, y2, x2]
+    boxes: [boxes_count, (y1, x1, y2, x2)]
+    box_area: float. the area of 'box'
+    boxes_area: array of length boxes_count.
+    Note: the areas are passed in rather than calculated here for
+    efficiency. Calculate once in the caller to avoid duplicate work.
+    """
+    # Calculate intersection areas
+    y1 = np.maximum(box[0], boxes[:, 0])
+    y2 = np.minimum(box[2], boxes[:, 2])
+    x1 = np.maximum(box[1], boxes[:, 1])
+    x2 = np.minimum(box[3], boxes[:, 3])
+    intersection = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)
+    union = box_area + boxes_area[:] - intersection[:]
+    # To compute smallest rectangle enclosing area and delta
+    ry1 = np.minimum(box[0], boxes[:, 0])
+    ry2 = np.maximum(box[2], boxes[:, 2])
+    rx1 = np.minimum(box[1], boxes[:, 1])
+    rx2 = np.maximum(box[3], boxes[:, 3])
+    R = np.abs(ry2 - ry1) * np.abs(rx2 - rx1)
+    delta = np.abs(R - union) / np.abs(R)
+    
+    # Compute constrained IoU
+    constrained_iou = (intersection / union) - delta
+    return constrained_iou
+
+def compute_distance_between_center_of_boxes(gt_boxes, anchor_box):
+    '''
+    Calculates distance between centre of a gt_box with array of anchor boxes
+    gt_box : 
+    '''
+    distance = []
+    for i in range(len(gt_boxes)):
+        gt_x = gt_boxes[i][0]
+        gt_y = gt_boxes[i][1]
+        anc_x = anchor_box[0]
+        anc_y = anchor_box[1]
+        
+        distance.append(math.sqrt((gt_x - anc_x)**2 + (gt_y - anc_y)**2))
+    distance.sort()
+    return np.asarray(distance)
+
+def compute_threshold(gt_boxes, anchor_boxes, k = 10, ):
+    '''
+    Calculates the threshold dynamically for the RPN
+    gt_boxes : Set of Ground truth boxes
+    anchor_boxes : Set of anchor boxes
+    k : Top closest anchor boxes which are labeled as set of candidate positive samples
+    '''
+    threshold_list = []
+    centre_of_gt_boxes = []
+    centre_of_anchor_boxes = []
+    overlaps = np.zeros((anchor_boxes.shape[0], gt_boxes.shape[0]))
+    
+    for i in range(len(gt_boxes)):    
+        centre_of_gt_boxes.append(((gt_boxes[i][1] + gt_boxes[i][3])/2, (gt_boxes[i][2] + gt_boxes[i][0])/2))
+    
+    for i in range((len(anchor_boxes))):
+        centre_of_anchor_boxes.append(((anchor_boxes[i][1] + anchor_boxes[i][3])/2, (anchor_boxes[i][2] + anchor_boxes[i][0])/2))
+    
+    
+    for i in range(overlaps.shape[0]):
+        distances = compute_distance_between_center_of_boxes(centre_of_gt_boxes, centre_of_anchor_boxes[i])
+        # Select top k candidates
+        top_k_candidates = distances[0:k]
+        # Calculate mean and standard deviation
+        mg = np.mean(top_k_candidates)
+        vg = np.std(top_k_candidates)
+        # Calculate threshold  for ground truth g
+        tg = mg + vg
+        threshold_list.append(tg)
+        
+    
+    return np.asarray(threshold_list)
 
 def compute_iou(box, boxes, box_area, boxes_area):
     """Calculates IoU of the given box with the array of the given boxes.
@@ -100,7 +176,7 @@ def compute_overlaps(boxes1, boxes2):
     overlaps = np.zeros((boxes1.shape[0], boxes2.shape[0]))
     for i in range(overlaps.shape[1]):
         box2 = boxes2[i]
-        overlaps[:, i] = compute_iou(box2, boxes1, area2[i], area1)
+        overlaps[:, i] = compute_constrained_iou(box2, boxes1, area2[i], area1)
     return overlaps
 
 

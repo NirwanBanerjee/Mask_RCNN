@@ -1,3 +1,5 @@
+from msilib.schema import Class
+from cv2 import CLAHE
 import mrcnn
 import mrcnn.config
 import mrcnn.model
@@ -5,14 +7,17 @@ import mrcnn.visualize
 import cv2
 import os
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="7"
+
 # load the class label names from disk, one label per line
 # CLASS_NAMES = open("coco_labels.txt").read().strip().split("\n")
 
-CLASS_NAMES = ['BG', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
-
+#CLASS_NAMES = ['BG', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
+CLASS_NAMES = ['BG','cat1']
 class SimpleConfig(mrcnn.config.Config):
     # Give the configuration a recognizable name
-    NAME = "coco_inference"
+    NAME = "ishape_wire_inference"
     
     # set the number of GPUs to use along with the number of images per GPU
     GPU_COUNT = 1
@@ -28,17 +33,18 @@ model = mrcnn.model.MaskRCNN(mode="inference",
                              model_dir=os.getcwd())
 
 # Load the weights into the model.
-file_dir = r'D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\logs\asi_wodss_20220725T0747'
+file_dir = r'D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\logs\ishape_wire_panet_sem20220728T1711'
 i=0
 for files in os.listdir(file_dir): 
 
     file = os.path.join(file_dir, files)
     
     model.load_weights(filepath=file, 
-                    by_name=True)
+                    by_name=True, #exclude=["mrcnn_bbox_fc", "mrcnn_class_logits", "mrcnn_mask"]
+                    )
 
     # load the input image, convert it from BGR to RGB channel
-    image = cv2.imread("test.jpg")
+    image = cv2.imread("wire.jpg")
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     # Perform a forward pass of the network to obtain the results
@@ -46,6 +52,8 @@ for files in os.listdir(file_dir):
 
     # Get the results for the first image.
     r = r[0]
+    
+    
 
     # Visualize the detected objects.
     mrcnn.visualize.display_instances(image=image, 
@@ -54,6 +62,6 @@ for files in os.listdir(file_dir):
                                     class_ids=r['class_ids'], 
                                     class_names=CLASS_NAMES, 
                                     scores=r['scores'],
-                                    save_fig_path=os.path.join(r'inferred_images\asi_wodss', str(i)),
+                                    save_fig_path=os.path.join(r'inferred_images\ishape_wire_sem_panet', str(i)),
                                     i=i)
     i += 1
