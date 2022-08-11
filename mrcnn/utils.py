@@ -63,6 +63,144 @@ def extract_bboxes(mask):
         boxes[i] = np.array([y1, x1, y2, x2])
     return boxes.astype(np.int32)
 
+def tf_delete(tensor,index,row=True):
+    
+    if row:
+        sub = list(range(tensor.shape[0]))
+    else:
+        sub = list(range(tensor.shape[1]))
+    sub.pop(index)
+    
+    if row:
+        return  tf.gather(tensor,sub)
+    return tf.transpose(tf.gather(tf.transpose(tensor),sub))
+
+
+def compute_distance_between_center_of_boxes_for_nms(gt_boxes, anchor_box):
+    '''
+    Calculates distance between centre of a gt_box with array of anchor boxes
+    gt_box : 
+    '''
+    distance = []
+    for i in range(len(gt_boxes)):
+        gt_x = gt_boxes[i][0]
+        gt_y = gt_boxes[i][1]
+        anc_x = anchor_box[0][0]
+        anc_y = anchor_box[0][1]
+        
+        dis = tf.math.sqrt((gt_x - anc_x)**2 + (gt_y - anc_y)**2)
+        #ipdb.set_trace()
+        #dis = dis.numpy()
+        distance.append(dis)
+    distance = tf.sort(distance)
+    return tf.convert_to_tensor(distance)
+
+def compute_nms_threshold(box, boxes):
+    '''
+    Computes the nms threshold of one box with others
+    '''
+    threshold_list = []
+    centre_of_box = []
+    centre_of_boxes = []
+    
+    
+    
+    
+    centre_of_box.append(((box[1] + box[3])/2, (box[2] + box[0])/2))
+    
+    for i in range(boxes.shape[0]):
+        centre_of_boxes.append(((boxes[i][1] + boxes[i][3])/2, (boxes[i][2] + boxes[i][0])/2))
+        
+    distances = compute_distance_between_center_of_boxes_for_nms(centre_of_boxes, centre_of_box)
+        
+    mg = tf.math.reduce_mean(distances)
+    vg = tf.math.reduce_std(distances)
+        
+    tg = mg + vg
+    
+    
+    
+    return (1 - tg)
+
+def dynamic_non_max_suppression(boxes, scores,):
+    """Performs non-maximum suppression and returns indices of kept boxes.
+    boxes: [N, (y1, x1, y2, x2)]. Notice that (y2, x2) lays outside the box.
+    scores: 1-D array of box scores.
+    threshold: Float. IoU threshold to use for filtering.
+    """
+    #assert boxes.shape[0] > 0
+    '''if boxes.dtype.kind != "f":
+        boxes = boxes.astype(np.float32)'''
+    import ipdb
+    
+    # Compute box areas
+    y1 = boxes[:, 0]
+    x1 = boxes[:, 1]
+    y2 = boxes[:, 2]
+    x2 = boxes[:, 3]
+    areas = (y2 - y1) * (x2 - x1)
+
+    # Get indicies of boxes sorted by scores (highest first)
+    ipdb.set_trace()
+    
+    ixs = tf.argsort(scores)[::-1]
+    pick = []
+    
+    
+    while ixs.shape[0] > 0:
+        # Pick top box and add its index to the list
+        i = ixs[0]
+        pick.append(i)
+        #slice = []
+        
+        '''for i in ixs[1:]:
+            ipdb.set_trace()
+            slice.append(int(i))'''
+        #sess = tf.compat.v1.
+        slice_ = ixs[1:]
+        #slice = np.asarray(slice)
+            
+        # Compute IoU of the picked box with the rest
+        boxes_slice = tf.gather(boxes, slice_)
+        areas_slice = tf.gather(areas, slice_)
+        box = tf.gather(boxes, i)
+        area = tf.gather(areas, i)
+        threshold = compute_nms_threshold(box, boxes)
+        iou = compute_tensor_iou(box, boxes_slice, area, areas_slice)
+        # Identify boxes with IoU over the threshold. This
+        # returns indices into ixs[1:], so add 1 to get
+        # indices into ixs.
+        #
+        keep_ixs = tf.where(iou <= (1 - threshold))[0] + 1
+        #remove_ixs = tf.gather()
+        ipdb.set_trace()
+        # Remove indices of the picked and overlapped boxes.
+        ixs = tf.gather(ixs, keep_ixs)
+        #sliced_index = tf
+        ixs = ixs[1:]
+    return tf.convert_to_tensor(pick, dtype=tf.int32)
+
+def compute_tensor_iou(box, boxes, box_area, boxes_area):
+    """Calculates IoU of the given box with the array of the given boxes.
+    box: 1D vector [y1, x1, y2, x2]
+    boxes: [boxes_count, (y1, x1, y2, x2)]
+    box_area: float. the area of 'box'
+    boxes_area: array of length boxes_count.
+    Note: the areas are passed in rather than calculated here for
+    efficiency. Calculate once in the caller to avoid duplicate work.
+    """
+    
+    # Calculate intersection areas
+    y1 = tf.maximum(boxes[:,0], box[0], )
+    y2 = tf.minimum(boxes[:,2], box[2], )
+    x1 = tf.maximum(boxes[:,1], box[1], )
+    x2 = tf.minimum(boxes[:,3], box[3], )
+    intersection = tf.maximum(x2 - x1, 0) * tf.maximum(y2 - y1, 0)
+    
+    union = box_area + boxes_area[:] - intersection[:]
+    iou = intersection / union
+    return iou
+
 def compute_constrained_iou(box, boxes, box_area, boxes_area):
     """Calculates IoU of the given box with the array of the given boxes.
     box: 1D vector [y1, x1, y2, x2]

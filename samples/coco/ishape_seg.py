@@ -48,15 +48,29 @@ import urllib.request
 import shutil
 
 
+'''import tensorflow as tf
+
+config = tf.compat.v1.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.9
+config.gpu_options.allow_growth = True
+config.gpu_options.polling_inactive_delay_msecs = 10
+session = tf.compat.v1.Session(config=config)'''
 import warnings
 warnings.filterwarnings("ignore")
+
+#os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+
 # Root directory of the project
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
+
 ROOT_DIR = os.path.abspath(r"D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2")
-print("PANet")
+print("COCO")
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn.config import Config
-from mrcnn import model as modellib, utils
+from mrcnn import model_new as modellib, utils
 from mrcnn.model_new import load_semantic_model
 
 # Path to trained weights file
@@ -71,6 +85,7 @@ DEFAULT_DATASET_YEAR = "2014"
 #  Configurations
 ############################################################
 
+#PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
 class CocoConfig(Config):
     """Configuration for training on MS COCO.
@@ -78,17 +93,18 @@ class CocoConfig(Config):
     to the COCO dataset.
     """
     # Give the configuration a recognizable name
-    NAME = "PANet_"
+    NAME = "COCO_SEMANTIC_"
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
     IMAGES_PER_GPU = 1
 
     # Uncomment to train on 8 GPUs (default is 1)
-    #GPU_COUNT = 4
+    #
+    #GPU_COUNT = 2
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 80  # COCO has 80 classes
+    NUM_CLASSES = 3 + 1  # COCO has 80 classes
 
 
 ############################################################
@@ -96,7 +112,7 @@ class CocoConfig(Config):
 ############################################################
 
 class CocoDataset(utils.Dataset):
-    def load_coco(self, dataset_dir, subset, year=DEFAULT_DATASET_YEAR, class_ids=None,
+    def load_coco(self, ann_path, img_dir, dataset_dir, subset, year=DEFAULT_DATASET_YEAR, class_ids=None,
                   class_map=None, return_coco=False, auto_download=False):
         """Load a subset of the COCO dataset.
         dataset_dir: The root directory of the COCO dataset.
@@ -109,13 +125,13 @@ class CocoDataset(utils.Dataset):
         auto_download: Automatically download and unzip MS-COCO images and annotations
         """
 
-        if auto_download is True:
-            self.auto_download(dataset_dir, subset, year)
+        '''if auto_download is True:
+            self.auto_download(dataset_dir, subset, year)'''
 
-        coco = COCO("{}/annotations/instances_{}{}.json".format(dataset_dir, subset, year))
+        coco = COCO(ann_path)
         if subset == "minival" or subset == "valminusminival":
             subset = "val"
-        image_dir = "{}/{}{}".format(dataset_dir, subset, year)
+        image_dir = img_dir
 
         # Load all classes or a subset?
         if not class_ids:
@@ -370,7 +386,6 @@ def evaluate_coco(model, dataset, coco, eval_type="bbox", limit=0, image_ids=Non
         # Run detection
         t = time.time()
         r = model.detect([image], verbose=0)[0]
-        f = r
         t_prediction += (time.time() - t)
 
         # Convert results to COCO format
@@ -380,12 +395,11 @@ def evaluate_coco(model, dataset, coco, eval_type="bbox", limit=0, image_ids=Non
                                            r["scores"],
                                            r["masks"].astype(np.uint8))
         results.extend(image_results)
-        #import ipdb
-        #ipdb.set_trace()
+        
 
     # Load results. This modifies results with additional attributes.
     coco_results = coco.loadRes(results)
-
+    
     # Evaluate
     cocoEval = COCOeval(coco, coco_results, eval_type)
     cocoEval.params.imgIds = coco_image_ids
@@ -456,13 +470,17 @@ if __name__ == '__main__':
         config = InferenceConfig()
     config.display()
 
+
+
+    semantic_model = load_semantic_model(r"D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\mito_sem_seg_model.h5")
+
     # Create model
     if args.command == "train":
         model = modellib.MaskRCNN(mode="training", config=config,
-                                  model_dir=args.logs)
+                                  model_dir=args.logs, semantic_model = semantic_model)
     else:
         model = modellib.MaskRCNN(mode="inference", config=config,
-                                  model_dir=args.logs)
+                                  model_dir=args.logs, semantic_model = semantic_model)
 
     # Select weights file to load
     if args.model.lower() == "coco":
@@ -475,27 +493,58 @@ if __name__ == '__main__':
         model_path = model.get_imagenet_weights()
     else:
         model_path = args.model
-        
-    semantic_model = load_semantic_model(r"D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\coco_sem_seg_model.h5")
 
     # Load weights
     print("Loading weights ", model_path)
-    model.load_weights(model_path, by_name=True)
+    model.load_weights(model_path, by_name=True, 
+                       #exclude=["mrcnn_bbox_fc", "mrcnn_class_logits", "mrcnn_mask"]
+                       )
 
+    
+    #train_ann_path = r'D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\ishape_dataset\antenna\train\coco_format\instances_train2017.json'
+   # val_ann_path = r'D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\ishape_dataset\antenna\val\coco_format\instances_train2017.json'
+    
+    
+    train_ann_path = r"D:\Nirwan\MRCNN_TF2\data\mito_data\annotations\train.json"
+    val_ann_path = r"D:\Nirwan\MRCNN_TF2\data\mito_data\annotations\val.json"
+    
+    
+    
+    train_img_folder = r'D:\Nirwan\MRCNN_TF2\data\mito_data\rgb\train'
+    val_img_folder = r'D:\Nirwan\MRCNN_TF2\data\mito_data\rgb\val'
+
+    
+    #train_img_folder = r'D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\ishape_dataset\antenna\train\coco_format\train2017'
+    #val_img_folder = r'D:\Nirwan\MRCNN_TF2\Mask-RCNN-TF2\ishape_dataset\antenna\val\coco_format\train2017'
+    
+    
+    #train_ann_path = r"D:\Nirwan\PANet\foo-upgraded\coco\annotations\instances_train2014.json"
+    #val_ann_path = r"D:\Nirwan\PANet\foo-upgraded\coco\annotations\instances_val2014.json"
+    
+    #train_img_folder = r"D:\Nirwan\PANet\foo-upgraded\coco\train2014"
+    #val_img_folder = r"D:\Nirwan\PANet\foo-upgraded\coco\val2014"
+    
+    
     # Train or evaluate
     if args.command == "train":
         # Training dataset. Use the training set and 35K from the
         # validation set, as as in the Mask RCNN paper.
         dataset_train = CocoDataset()
-        dataset_train.load_coco(args.dataset, "train", year=args.year, auto_download=args.download)
-        if args.year in '2014':
-            dataset_train.load_coco(args.dataset, "valminusminival", year=args.year, auto_download=args.download)
+        #dataset_train.load_coco(args.dataset, "train", year=args.year, auto_download=args.download)
+        dataset_train.load_coco(ann_path=train_ann_path,
+                                img_dir=train_img_folder,
+                                dataset_dir=args.dataset, subset="train", year=args.year, auto_download=args.download)
+        '''if args.year in '2014':
+            dataset_train.load_coco(args.dataset, "valminusminival", year=args.year, auto_download=args.download)'''
         dataset_train.prepare()
 
         # Validation dataset
         dataset_val = CocoDataset()
         val_type = "val" if args.year in '2017' else "minival"
-        dataset_val.load_coco(args.dataset, val_type, year=args.year, auto_download=args.download)
+        #dataset_val.load_coco(args.dataset, val_type, year=args.year, auto_download=args.download)
+        dataset_val.load_coco(ann_path=val_ann_path,
+                              img_dir=val_img_folder,
+                                dataset_dir=args.dataset, subset=val_type, year=args.year, auto_download=args.download)
         dataset_val.prepare()
 
         # Image Augmentation
@@ -508,7 +557,7 @@ if __name__ == '__main__':
         print("Training network heads")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=20,
+                    epochs=40,
                     layers='heads',
                     augmentation=augmentation)
 
@@ -517,7 +566,7 @@ if __name__ == '__main__':
         print("Fine tune Resnet stage 4 and up")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=40,
+                    epochs=80,
                     layers='4+',
                     augmentation=augmentation)
 
@@ -526,7 +575,7 @@ if __name__ == '__main__':
         print("Fine tune all layers")
         model.train(dataset_train, dataset_val,
                     learning_rate=config.LEARNING_RATE / 10,
-                    epochs=80,
+                    epochs=160,
                     layers='all',
                     augmentation=augmentation)
 
@@ -534,10 +583,14 @@ if __name__ == '__main__':
         # Validation dataset
         dataset_val = CocoDataset()
         val_type = "val" if args.year in '2017' else "minival"
-        coco = dataset_val.load_coco(args.dataset, val_type, year=args.year, return_coco=True, auto_download=args.download,)
+        #coco = dataset_val.load_coco(args.dataset, val_type, year=args.year, return_coco=True, auto_download=args.download)
+        coco = dataset_val.load_coco(ann_path=val_ann_path,
+                              img_dir=val_img_folder,
+                                dataset_dir=args.dataset, subset=val_type, year=args.year, auto_download=args.download, return_coco=True)
         dataset_val.prepare()
         print("Running COCO evaluation on {} images.".format(args.limit))
-        evaluate_coco(model, dataset_val, coco, "bbox", limit=int(args.limit))
+        
+        evaluate_coco(model, dataset_val, coco, "segm", limit=int(args.limit))
     else:
         print("'{}' is not recognized. "
               "Use 'train' or 'evaluate'".format(args.command))
